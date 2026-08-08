@@ -18,7 +18,7 @@ from google import genai
 from google.genai import types
 
 # Ordered fallback chain — first that succeeds wins.
-MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 API_KEY_POOL = [v for v in [
     os.environ.get(f"GEMINI_KEY_{i}", "") for i in range(1, 11)
