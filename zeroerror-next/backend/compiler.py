@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from board_registry import get_board
 
-HARD_TIMEOUT_SECONDS = 90
+HARD_TIMEOUT_SECONDS = 280  # generous headroom for Render's 0.1 CPU free tier
 
 
 class CompileError(Exception):
@@ -111,7 +111,7 @@ def compile_stm32h7(source_code: str) -> bytes:
         with open(os.path.join(tmp, "platformio.ini"), "w", encoding="utf-8") as f:
             f.write(ini)
 
-        _run_with_hard_timeout(["pio", "run", "-e", board["pio_env"]], cwd=tmp, timeout=180)
+        _run_with_hard_timeout(["pio", "run", "-e", board["pio_env"]], cwd=tmp, timeout=280)
         build_dir = os.path.join(tmp, ".pio", "build", board["pio_env"])
         bin_path = _pick_single_binary(build_dir, "firmware.bin")
         with open(bin_path, "rb") as f:
