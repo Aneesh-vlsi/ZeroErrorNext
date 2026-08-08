@@ -3,6 +3,7 @@ import { Cpu, Zap, Download, Loader2 } from "lucide-react";
 import { generateHardware, compileHardware, base64ToBytes } from "../lib/api";
 import { flashEsp8266, isWebSerialSupported } from "../flashers/esp8266";
 import { flashStm32h7, isWebUSBSupported } from "../flashers/stm32h7";
+import ReadAloudButton from "./ReadAloudButton";
 
 const BOARD_OPTIONS = [
   { value: "ESP8266 NodeMCU", family: "esp8266", label: "ESP8266 (NodeMCU / Wemos D1)" },
@@ -18,6 +19,7 @@ export default function HardwarePanel({ onArtifact, onLog, apiOnline, onResult }
   const [result, setResult] = useState(null); // {code, wiring, family, error}
   const [status, setStatus] = useState(null);
   const [flashState, setFlashState] = useState({ busy: false, log: [], progress: 0 });
+  const [localFile, setLocalFile] = useState(null);
 
   const selectedFamily = BOARD_OPTIONS.find((b) => b.value === boardChoice)?.family;
   const effectiveBoardName = boardChoice === "__custom__" ? customBoard : boardChoice;
@@ -65,23 +67,11 @@ export default function HardwarePanel({ onArtifact, onLog, apiOnline, onResult }
     a.click();
   }
 
-  async function handleCompileAndFlash() {
-    if (!result?.code) return;
-    setFlashState({ busy: true, log: ["Compiling on server..."], progress: 0 });
+  async function flashBytes(binBytes) {
+    setFlashState({ busy: true, log: [`Flashing ${binBytes.length} bytes to device...`], progress: 0 });
+    const onFlashLog = (msg) => setFlashState((s) => ({ ...s, log: [...s.log, msg] }));
+    const onFlashProgress = (pct) => setFlashState((s) => ({ ...s, progress: pct }));
     try {
-      const compileRes = await compileHardware(selectedFamily, result.code);
-      if (compileRes.error) {
-        setFlashState((s) => ({ ...s, busy: false, log: [...s.log, `Compile failed: ${compileRes.error}`] }));
-        onLog(`Compile failed for ${selectedFamily}: ${compileRes.error}`, "ERROR");
-        return;
-      }
-      const binBytes = base64ToBytes(compileRes.binary_b64);
-      setFlashState((s) => ({ ...s, log: [...s.log, `Compiled ${binBytes.length} bytes. Connecting to device...`] }));
-      onLog(`Compiled firmware for ${effectiveBoardName} (${binBytes.length} bytes).`);
-
-      const onFlashLog = (msg) => setFlashState((s) => ({ ...s, log: [...s.log, msg] }));
-      const onFlashProgress = (pct) => setFlashState((s) => ({ ...s, progress: pct }));
-
       if (selectedFamily === "esp8266") {
         if (!isWebSerialSupported()) throw new Error("WebSerial not supported — use Chrome/Edge desktop.");
         await flashEsp8266(binBytes, onFlashLog, onFlashProgress);
@@ -95,6 +85,32 @@ export default function HardwarePanel({ onArtifact, onLog, apiOnline, onResult }
       setFlashState((s) => ({ ...s, busy: false, log: [...s.log, `Error: ${e.message}`] }));
       onLog(`Flash failed: ${e.message}`, "ERROR");
     }
+  }
+
+  async function handleCompileAndFlash() {
+    if (!result?.code) return;
+    setFlashState({ busy: true, log: ["Compiling on server..."], progress: 0 });
+    try {
+      const compileRes = await compileHardware(selectedFamily, result.code);
+      if (compileRes.error) {
+        setFlashState((s) => ({ ...s, busy: false, log: [...s.log, `Compile failed: ${compileRes.error}`] }));
+        onLog(`Compile failed for ${selectedFamily}: ${compileRes.error}`, "ERROR");
+        return;
+      }
+      const binBytes = base64ToBytes(compileRes.binary_b64);
+      onLog(`Compiled firmware for ${effectiveBoardName} (${binBytes.length} bytes).`);
+      await flashBytes(binBytes);
+    } catch (e) {
+      setFlashState((s) => ({ ...s, busy: false, log: [...s.log, `Error: ${e.message}`] }));
+      onLog(`Compile request failed: ${e.message}`, "ERROR");
+    }
+  }
+
+  async function handleLocalFileFlash() {
+    if (!localFile) return;
+    const buf = await localFile.arrayBuffer();
+    onLog(`Flashing locally-compiled file "${localFile.name}" (${buf.byteLength} bytes).`);
+    await flashBytes(new Uint8Array(buf));
   }
 
   return (
@@ -154,17 +170,54 @@ export default function HardwarePanel({ onArtifact, onLog, apiOnline, onResult }
             </>
           )}
 
+          <ReadAloudButton
+            text={`Firmware generated for ${effectiveBoardName}. ${result.wiring ? "Here is a summary of the wiring: " + result.wiring.replace(/\|/g, " ") : ""}`}
+            label="Read Summary Aloud"
+          />
+
           <div className="btn-row">
             <button className="btn btn-secondary" onClick={handleDownload}>
               <Download size={15} /> Download
             </button>
-            {canFlash && (
-              <button className="btn btn-green" onClick={handleCompileAndFlash} disabled={flashState.busy}>
-                {flashState.busy ? <Loader2 size={15} className="spin" /> : <Zap size={15} />}
-                {flashState.busy ? "FLASHING..." : "COMPILE & FLASH TO BOARD"}
-              </button>
-            )}
           </div>
+
+          {canFlash && (
+            <div style={{ marginTop: 12 }}>
+              <div className="section-title" style={{ marginTop: 0 }}>Flash to Board (Recommended)</div>
+              <div className="empty-note" style={{ marginBottom: 6 }}>
+                Compile locally with arduino-cli/PlatformIO (free, no card, no memory limit —
+                see backend/README.md), then flash the resulting .bin directly over
+                WebSerial/WebUSB. This is the reliable path on the free hosting tier.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="file"
+                  accept=".bin"
+                  onChange={(e) => setLocalFile(e.target.files?.[0] || null)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  className="btn btn-green"
+                  style={{ width: "auto", flex: "0 0 auto" }}
+                  onClick={handleLocalFileFlash}
+                  disabled={!localFile || flashState.busy}
+                >
+                  {flashState.busy ? <Loader2 size={15} className="spin" /> : <Zap size={15} />}
+                  {flashState.busy ? "FLASHING..." : "Flash This File"}
+                </button>
+              </div>
+
+              <div className="section-title">Or Try Server Compile (Experimental)</div>
+              <div className="empty-note" style={{ marginBottom: 6 }}>
+                Compiles on the backend and flashes automatically — convenient when it works,
+                but the free hosting tier's 512MB RAM limit means it can fail on larger builds.
+              </div>
+              <button className="btn btn-secondary" onClick={handleCompileAndFlash} disabled={flashState.busy}>
+                {flashState.busy ? <Loader2 size={15} className="spin" /> : <Zap size={15} />}
+                {flashState.busy ? "FLASHING..." : "COMPILE & FLASH TO BOARD (SERVER)"}
+              </button>
+            </div>
+          )}
 
           {!canFlash && result.family === "other-hardware" && (
             <div className="status-line">
