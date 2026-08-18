@@ -21,7 +21,7 @@ export default function Sidebar({ active, onNavigate }) {
       <div className="brand">
         <div className="brand-mark"><Zap size={18} /></div>
         <div className="brand-text">
-          <div className="title">ZEROERROR</div>
+          <div className="title">ZeroError</div>
           <div className="subtitle">AI ENGINEERING PLATFORM</div>
         </div>
       </div>
