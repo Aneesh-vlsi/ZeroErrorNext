@@ -18,6 +18,10 @@ from google import genai
 from google.genai import types
 
 # Ordered fallback chain — first that succeeds wins.
+# NOTE (Aug 2026): gemini-2.0-flash and gemini-1.5-flash are already
+# shut down by Google. gemini-2.5-flash is still live but scheduled to
+# shut down Oct 16, 2026 — kept here as a cheap first try, with the
+# current Gemini 3.x family as the real fallback.
 MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 API_KEY_POOL = [v for v in [
@@ -38,6 +42,7 @@ def safe_api_call(contents: str, system_instruction: str, manual_override_key: s
             client = genai.Client(api_key=api_key)
         except Exception as e:
             return None, f"{label} init failed: {e}"
+        last_error = None
         for model_name in MODEL_FALLBACK_CHAIN:
             try:
                 resp = client.models.generate_content(
@@ -50,8 +55,12 @@ def safe_api_call(contents: str, system_instruction: str, manual_override_key: s
                 )
                 if resp and resp.text:
                     return resp.text, label
-            except Exception:
+            except Exception as e:
+                last_error = e
+                print(f"[ai_engine] {label} failed on {model_name}: {e}")
                 continue
+        if last_error:
+            print(f"[ai_engine] {label} exhausted all models. Last error: {last_error}")
         return None, None
 
     if clean_override and len(clean_override) > 10:
